@@ -12,7 +12,7 @@
 
 #if (defined(SIMULATOR_DEVICE_READPICO) + defined(SIMULATOR_DEVICE_X3) + defined(SIMULATOR_DEVICE_X4_PRO) +          \
      defined(SIMULATOR_DEVICE_X4_CLASSIC) + defined(SIMULATOR_DEVICE_STICKY) + defined(SIMULATOR_DEVICE_PAPERMONO) + \
-     defined(SIMULATOR_DEVICE_EEGO_A4) +                                                                             \
+     defined(SIMULATOR_DEVICE_WAVESHARE_EPAPER_397) + defined(SIMULATOR_DEVICE_EEGO_A4) +                            \
      (defined(SIMULATOR_DEVICE_MURPHY_M4) || defined(SIMULATOR_DEVICE_MOFEI_M4))) > 1
 #error "Select at most one simulated device"
 #endif
@@ -26,8 +26,8 @@
 #endif
 
 #if (defined(SIMULATOR_DEVICE_READPICO) || defined(SIMULATOR_DEVICE_STICKY) || defined(SIMULATOR_DEVICE_PAPERMONO) || \
-     defined(SIMULATOR_DEVICE_EEGO_A4) || defined(SIMULATOR_DEVICE_MURPHY_M4) ||                                      \
-     defined(SIMULATOR_DEVICE_MOFEI_M4)) &&                                                                           \
+     defined(SIMULATOR_DEVICE_WAVESHARE_EPAPER_397) || defined(SIMULATOR_DEVICE_EEGO_A4) ||                           \
+     defined(SIMULATOR_DEVICE_MURPHY_M4) || defined(SIMULATOR_DEVICE_MOFEI_M4)) &&                                   \
     (defined(SIMULATOR_DISPLAY_UC8179) || defined(SIMULATOR_DISPLAY_UC8279))
 #error "This device has a fixed display controller"
 #endif
@@ -39,6 +39,7 @@
 #undef FREEINK_DEVICE_X4CLASSIC
 #undef FREEINK_DEVICE_STICKY
 #undef FREEINK_DEVICE_PAPERMONO
+#undef FREEINK_DEVICE_WAVESHARE_EPAPER_397
 #undef FREEINK_DEVICE_EEGO_A4
 #undef FREEINK_DEVICE_MURPHY_M4
 #undef FREEINK_DEVICE_MOFEI_M4
@@ -50,10 +51,24 @@
 #define FREEINK_DEVICE_X4CLASSIC 0
 #define FREEINK_DEVICE_STICKY 0
 #define FREEINK_DEVICE_PAPERMONO 0
+#define FREEINK_DEVICE_WAVESHARE_EPAPER_397 0
 #define FREEINK_DEVICE_EEGO_A4 0
 #define FREEINK_DEVICE_MURPHY_M4 0
 #define FREEINK_DEVICE_MOFEI_M4 0
 #define FREEINK_CAP_TOUCH 1
+#define FREEINK_CAP_FRONTLIGHT 0
+#elif defined(SIMULATOR_DEVICE_WAVESHARE_EPAPER_397)
+#define FREEINK_DEVICE_X4 0
+#define FREEINK_DEVICE_X3 0
+#define FREEINK_DEVICE_X4PRO 0
+#define FREEINK_DEVICE_X4CLASSIC 0
+#define FREEINK_DEVICE_STICKY 0
+#define FREEINK_DEVICE_PAPERMONO 0
+#define FREEINK_DEVICE_WAVESHARE_EPAPER_397 1
+#define FREEINK_DEVICE_EEGO_A4 0
+#define FREEINK_DEVICE_MURPHY_M4 0
+#define FREEINK_DEVICE_MOFEI_M4 0
+#define FREEINK_CAP_TOUCH 0
 #define FREEINK_CAP_FRONTLIGHT 0
 #elif defined(SIMULATOR_DEVICE_PAPERMONO)
 #define FREEINK_DEVICE_X4 0
@@ -160,6 +175,10 @@
 #define FREEINK_DEVICE_READPICO 0
 #endif
 
+#if !defined(FREEINK_DEVICE_WAVESHARE_EPAPER_397)
+#define FREEINK_DEVICE_WAVESHARE_EPAPER_397 0
+#endif
+
 #define FREEINK_MCU_C3 (FREEINK_DEVICE_X3 || FREEINK_DEVICE_X4)
 
 namespace BoardConfig {
@@ -176,6 +195,7 @@ enum class Board {
   Sticky,
   PaperMono,
   ReadPico,
+  WaveshareEpaper397,
 };
 
 enum class DisplayController {
@@ -265,9 +285,14 @@ inline constexpr BoardProfile PAPER_MONO = {
 
 inline constexpr BoardProfile READ_PICO = {Board::ReadPico, "read_pico", DisplayController::LgfxEpd, 0, {-1, -1},
                                            {5, 5, 8, 5}, 1216, 684, {TouchController::Cst836u}, 16};
+inline constexpr BoardProfile WAVESHARE_EPAPER_397 = {
+    Board::WaveshareEpaper397, "waveshare_epaper_397", DisplayController::SSD1677, 0,
+    {-1, -1}};
 
 #if defined(SIMULATOR_DEVICE_READPICO)
 inline BoardProfile ACTIVE = READ_PICO;
+#elif defined(SIMULATOR_DEVICE_WAVESHARE_EPAPER_397)
+inline BoardProfile ACTIVE = WAVESHARE_EPAPER_397;
 #elif defined(SIMULATOR_DEVICE_PAPERMONO)
 inline BoardProfile ACTIVE = PAPER_MONO;
 #elif defined(SIMULATOR_DEVICE_STICKY)
@@ -327,6 +352,9 @@ inline bool selectDevice(Board board) {
   case Board::PaperMono:
     ACTIVE = PAPER_MONO;
     return true;
+  case Board::WaveshareEpaper397:
+    ACTIVE = WAVESHARE_EPAPER_397;
+    return true;
   }
   return false;
 }
@@ -340,6 +368,9 @@ inline bool isMurphyM4() {
 }
 inline bool isSticky() { return ACTIVE.board == Board::Sticky; }
 inline bool isReadPico() { return ACTIVE.board == Board::ReadPico; }
+inline bool isWaveshareEpaper397() {
+  return ACTIVE.board == Board::WaveshareEpaper397;
+}
 inline bool isPaperMono() { return ACTIVE.board == Board::PaperMono; }
 inline bool hasTouch() {
   return isX4Pro() || isEegoA4() || isMurphyM4() || isSticky() || isPaperMono() || isReadPico();
