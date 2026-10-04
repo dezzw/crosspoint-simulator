@@ -79,6 +79,10 @@ these flags:
   SSD1677 profile. It exposes FT6336-compatible touch and swipe input, the RTC,
   and single-channel frontlight state without a Home key or color-temperature
   control.
+- `-DSIMULATOR_DEVICE_WAVESHARE_EPAPER_397` selects the Waveshare ESP32-S3
+  ePaper 3.97 board profile (800×480 SSD1677, RTC, no touch). Keyboard input
+  models the face buttons and `FunctionButtonGesture` chords rather than mapping
+  keys directly to logical Back/Confirm (see **Waveshare keyboard map** below).
 - `-DSIMULATOR_DISPLAY_UC8179` selects the newer UC8179 controller used by
   some X4 and X4 Pro production batches.
 - `-DSIMULATOR_DISPLAY_UC8279` selects UC8279d on X3, or the 800x480 UC8279
@@ -87,6 +91,7 @@ these flags:
 The sample PlatformIO files include ready-to-use environments for the original
 profiles plus `simulator_eego_a4`, `simulator_murphy_m4`,
 `simulator_mofei_m4`, `simulator_sticky`, `simulator_papermono`,
+`simulator_waveshare_epaper_397`,
 `simulator_x3_uc8279`, `simulator_x4_uc8179`, `simulator_x4_uc8279`,
 `simulator_x4_pro_uc8179`, `simulator_x4_pro_uc8279`, and the three
 `simulator_x4_classic` controller variants. The UC8279 X4 Pro path mirrors
@@ -145,6 +150,23 @@ The `post:` line above only exposes the task in the consuming project UI. The ac
 ## Setup
 
 Place EPUB books at `./fs_/books/` in the Crosspoint repo's root. This maps to the `/books/` path on the physical SD card.
+
+## Waveshare keyboard map
+
+When building with `-DSIMULATOR_DEVICE_WAVESHARE_EPAPER_397`, SDL keys stand in
+for the Waveshare face hardware, then `FunctionButtonGesture` (vendored in
+`src/FunctionButtonGesture.*`) produces logical `HalGPIO` buttons:
+
+| Key | Face hardware | Logical result |
+| --- | --- | --- |
+| Escape | BOOT (GPIO0) | Modifier only; alone is silent. With Left/Right → Up/Down on release; with Function → Back |
+| Enter / Return | Function (GPIO5) | Click → Confirm; double-click (~300 ms) → Back |
+| Left arrow | Left (GPIO4) | Left, or Up when released while BOOT is held |
+| Right arrow | Right (GPIO6) | Right, or Down when released while BOOT is held |
+| P | Side PWR | Power (outside gesture decoding) |
+
+Other simulator profiles keep the direct map (Escape → Back, Return → Confirm,
+and so on). `S` still requests sleep; deep sleep wake accepts only `P`.
 
 ## Build and run
 

@@ -16,6 +16,10 @@
 #include "HalDisplay.h"
 #include "SimulatorLifecycle.h"
 
+#if defined(SIMULATOR_DEVICE_WAVESHARE_EPAPER_397)
+#include "FunctionButtonGesture.h"
+#endif
+
 // Defined in HalDisplay.cpp — set here so all SDL event polling lives in one
 // place.
 extern std::atomic<bool> quitRequested;
@@ -40,6 +44,28 @@ static constexpr unsigned long TOUCH_SWIPE_MAX_MS = 700;
 static constexpr unsigned long TOUCH_LONG_PRESS_MS = 500;
 static constexpr unsigned long HOME_KEY_LONG_PRESS_MS = 700;
 
+#if defined(SIMULATOR_DEVICE_WAVESHARE_EPAPER_397)
+// SDL keys stand in for Waveshare face hardware (see README). Logical
+// Back/Confirm/Up/Down come from FunctionButtonGesture, not direct mapping.
+static const SDL_Scancode buttonScancode[NUM_BUTTONS] = {
+    SDL_SCANCODE_UNKNOWN, // BTN_BACK (gesture)
+    SDL_SCANCODE_UNKNOWN, // BTN_CONFIRM (gesture)
+    SDL_SCANCODE_UNKNOWN, // BTN_LEFT (gesture / passthrough)
+    SDL_SCANCODE_UNKNOWN, // BTN_RIGHT (gesture / passthrough)
+    SDL_SCANCODE_UNKNOWN, // BTN_UP (gesture)
+    SDL_SCANCODE_UNKNOWN, // BTN_DOWN (gesture)
+    SDL_SCANCODE_P,       // BTN_POWER (side PWR)
+};
+static constexpr int NUM_FACE_BUTTONS = 4;
+static const SDL_Scancode faceScancode[NUM_FACE_BUTTONS] = {
+    SDL_SCANCODE_ESCAPE, // BOOT (GPIO0)
+    SDL_SCANCODE_RETURN, // Function (GPIO5)
+    SDL_SCANCODE_LEFT,   // Left (GPIO4)
+    SDL_SCANCODE_RIGHT,  // Right (GPIO6)
+};
+static FunctionButtonGesture faceGesture;
+static bool syntheticFaceDown[NUM_FACE_BUTTONS] = {};
+#else
 static const SDL_Scancode buttonScancode[NUM_BUTTONS] = {
     SDL_SCANCODE_ESCAPE, // BTN_BACK
     SDL_SCANCODE_RETURN, // BTN_CONFIRM
@@ -49,6 +75,7 @@ static const SDL_Scancode buttonScancode[NUM_BUTTONS] = {
     SDL_SCANCODE_DOWN,   // BTN_DOWN
     SDL_SCANCODE_P,      // BTN_POWER
 };
+#endif
 
 static bool pressedThisFrame[NUM_BUTTONS] = {};
 static bool releasedThisFrame[NUM_BUTTONS] = {};
@@ -288,6 +315,16 @@ std::string uppercase(std::string value) {
 }
 
 int namedButton(const std::string &name) {
+#if defined(SIMULATOR_DEVICE_WAVESHARE_EPAPER_397)
+  if (name == "BOOT" || name == "ESCAPE")
+    return 100; // FaceButton::Boot
+  if (name == "FUNCTION" || name == "RETURN" || name == "ENTER")
+    return 101; // FaceButton::Function
+  if (name == "LEFT")
+    return 102;
+  if (name == "RIGHT")
+    return 103;
+#endif
   if (name == "ESCAPE" || name == "BACK")
     return HalGPIO::BTN_BACK;
   if (name == "RETURN" || name == "ENTER" || name == "CONFIRM")
@@ -307,9 +344,62 @@ int namedButton(const std::string &name) {
 
 bool canWakeFromButton(int button) {
   const auto board = BoardConfig::ACTIVE.board;
-  const bool powerOnly = board == BoardConfig::Board::EegoA4 || BoardConfig::isMurphyM4() || BoardConfig::isReadPico();
+  const bool powerOnly = board == BoardConfig::Board::EegoA4 ||
+                         BoardConfig::isMurphyM4() ||
+                         BoardConfig::isReadPico() ||
+                         board == BoardConfig::Board::WaveshareEpaper397;
   return !powerOnly || button == HalGPIO::BTN_POWER;
 }
+
+#if defined(SIMULATOR_DEVICE_WAVESHARE_EPAPER_397)
+using FaceButton = FunctionButtonGesture::FaceButton;
+
+int scancodeToFaceButton(SDL_Scancode sc) {
+  for (int i = 0; i < NUM_FACE_BUTTONS; ++i) {
+    if (faceScancode[i] == sc)
+      return i;
+  }
+  return -1;
+}
+
+bool faceButtonHeld(int faceIndex) {
+  if (faceIndex < 0 || faceIndex >= NUM_FACE_BUTTONS)
+    return false;
+  const uint8_t *state = SDL_GetKeyboardState(nullptr);
+  return state[faceScancode[faceIndex]] || syntheticFaceDown[faceIndex];
+}
+
+void mergeGestureLogicalEdges() {
+  for (int i = 0; i < NUM_BUTTONS; ++i) {
+    if (faceGesture.logicalPressed(i))
+      pressedThisFrame[i] = true;
+    if (faceGesture.logicalReleased(i))
+      releasedThisFrame[i] = true;
+  }
+}
+
+void onFaceButtonDown(int faceIndex) {
+  const auto button = static_cast<FaceButton>(faceIndex);
+  const unsigned long now = SDL_GetTicks();
+  faceGesture.onPhysicalPressed(button, now);
+  if (button == FaceButton::Function)
+    buttonPressTime[HalGPIO::BTN_CONFIRM] = now;
+  mergeGestureLogicalEdges();
+}
+
+void onFaceButtonUp(int faceIndex) {
+  const auto button = static_cast<FaceButton>(faceIndex);
+  faceGesture.onPhysicalReleased(button, SDL_GetTicks());
+  if (button == FaceButton::Function)
+    releasedThisFrame[HalGPIO::BTN_CONFIRM] = true;
+  mergeGestureLogicalEdges();
+}
+
+void advanceFaceGesture() {
+  faceGesture.advance(SDL_GetTicks());
+  mergeGestureLogicalEdges();
+}
+#endif
 
 void initializeSyntheticEvents() {
   if (syntheticEventsInitialized)
@@ -399,6 +489,14 @@ void processSyntheticEvents() {
     event.handled = true;
     switch (event.action) {
     case SyntheticAction::KeyDown:
+#if defined(SIMULATOR_DEVICE_WAVESHARE_EPAPER_397)
+      if (event.button >= 100) {
+        const int faceIndex = event.button - 100;
+        syntheticFaceDown[faceIndex] = true;
+        onFaceButtonDown(faceIndex);
+        break;
+      }
+#endif
       pressedThisFrame[event.button] = true;
       syntheticButtonDown[event.button] = true;
       // Held-time calculations use SDL_GetTicks() for real keyboard events;
@@ -407,6 +505,14 @@ void processSyntheticEvents() {
       buttonPressTime[event.button] = SDL_GetTicks();
       break;
     case SyntheticAction::KeyUp:
+#if defined(SIMULATOR_DEVICE_WAVESHARE_EPAPER_397)
+      if (event.button >= 100) {
+        const int faceIndex = event.button - 100;
+        syntheticFaceDown[faceIndex] = false;
+        onFaceButtonUp(faceIndex);
+        break;
+      }
+#endif
       releasedThisFrame[event.button] = true;
       syntheticButtonDown[event.button] = false;
       break;
@@ -441,6 +547,12 @@ static void clearButtonState() {
     buttonPressTime[i] = 0;
     syntheticButtonDown[i] = false;
   }
+#if defined(SIMULATOR_DEVICE_WAVESHARE_EPAPER_397)
+  for (int i = 0; i < NUM_FACE_BUTTONS; ++i) {
+    syntheticFaceDown[i] = false;
+  }
+  faceGesture.reset();
+#endif
   touchState = {};
   homeKeyDown = false;
   homeKeyPressedThisFrame = false;
@@ -451,15 +563,24 @@ static void clearButtonState() {
 }
 
 static int scancodeToButton(SDL_Scancode sc) {
+#if defined(SIMULATOR_DEVICE_WAVESHARE_EPAPER_397)
+  if (sc == buttonScancode[HalGPIO::BTN_POWER])
+    return HalGPIO::BTN_POWER;
+  return -1;
+#else
   for (int i = 0; i < NUM_BUTTONS; i++) {
     if (buttonScancode[i] == sc)
       return i;
   }
   return -1;
+#endif
 }
 
 void HalGPIO::begin() {
-#if defined(SIMULATOR_DEVICE_READPICO)
+#if defined(SIMULATOR_DEVICE_WAVESHARE_EPAPER_397)
+  _deviceType = DeviceType::X4;
+  BoardConfig::selectDevice(BoardConfig::Board::WaveshareEpaper397);
+#elif defined(SIMULATOR_DEVICE_READPICO)
   _deviceType = DeviceType::X4;
   BoardConfig::selectDevice(BoardConfig::Board::ReadPico);
 #elif defined(SIMULATOR_DEVICE_EEGO_A4)
@@ -522,6 +643,9 @@ void HalGPIO::beginFrame() {
     pressedThisFrame[i] = false;
     releasedThisFrame[i] = false;
   }
+#if defined(SIMULATOR_DEVICE_WAVESHARE_EPAPER_397)
+  faceGesture.beginLogicalFrame();
+#endif
   touchState.pressedThisFrame = false;
   touchState.releasedThisFrame = false;
   touchState.activityThisFrame = false;
@@ -557,6 +681,13 @@ void HalGPIO::update() {
         requestSimulatorSleep();
         continue;
       }
+#if defined(SIMULATOR_DEVICE_WAVESHARE_EPAPER_397)
+      const int faceBtn = scancodeToFaceButton(e.key.keysym.scancode);
+      if (faceBtn >= 0) {
+        onFaceButtonDown(faceBtn);
+        continue;
+      }
+#endif
       int btn = scancodeToButton(e.key.keysym.scancode);
       if (btn >= 0) {
         pressedThisFrame[btn] = true;
@@ -567,6 +698,13 @@ void HalGPIO::update() {
         endHomeKey();
         continue;
       }
+#if defined(SIMULATOR_DEVICE_WAVESHARE_EPAPER_397)
+      const int faceBtn = scancodeToFaceButton(e.key.keysym.scancode);
+      if (faceBtn >= 0) {
+        onFaceButtonUp(faceBtn);
+        continue;
+      }
+#endif
       int btn = scancodeToButton(e.key.keysym.scancode);
       if (btn >= 0) {
         releasedThisFrame[btn] = true;
@@ -600,6 +738,9 @@ void HalGPIO::update() {
     }
   }
   processSyntheticEvents();
+#if defined(SIMULATOR_DEVICE_WAVESHARE_EPAPER_397)
+  advanceFaceGesture();
+#endif
   updateTouchHold();
   updateHomeKeyHold();
 }
@@ -607,8 +748,26 @@ void HalGPIO::update() {
 bool HalGPIO::isPressed(uint8_t buttonIndex) const {
   if (buttonIndex >= NUM_BUTTONS)
     return false;
+#if defined(SIMULATOR_DEVICE_WAVESHARE_EPAPER_397)
+  switch (buttonIndex) {
+  case BTN_POWER:
+    return SDL_GetKeyboardState(nullptr)[buttonScancode[BTN_POWER]] ||
+           syntheticButtonDown[BTN_POWER];
+  case BTN_CONFIRM:
+    return faceGesture.isPhysicalHeld(FaceButton::Function);
+  case BTN_LEFT:
+    return faceGesture.isPhysicalHeld(FaceButton::Left) &&
+           !faceGesture.isPhysicalHeld(FaceButton::Boot);
+  case BTN_RIGHT:
+    return faceGesture.isPhysicalHeld(FaceButton::Right) &&
+           !faceGesture.isPhysicalHeld(FaceButton::Boot);
+  default:
+    return false;
+  }
+#else
   const uint8_t *state = SDL_GetKeyboardState(NULL);
   return state[buttonScancode[buttonIndex]] || syntheticButtonDown[buttonIndex];
+#endif
 }
 
 bool HalGPIO::rawInputActive() {
@@ -650,6 +809,20 @@ unsigned long HalGPIO::getHeldTime() const {
   // Keep the duration on the release frame too, matching the hardware HAL.
   unsigned long now = SDL_GetTicks();
   unsigned long maxHeld = 0;
+#if defined(SIMULATOR_DEVICE_WAVESHARE_EPAPER_397)
+  if ((faceGesture.isPhysicalHeld(FaceButton::Function) ||
+       releasedThisFrame[BTN_CONFIRM]) &&
+      buttonPressTime[BTN_CONFIRM] > 0) {
+    maxHeld = now - buttonPressTime[BTN_CONFIRM];
+  }
+  if ((SDL_GetKeyboardState(nullptr)[buttonScancode[BTN_POWER]] ||
+       syntheticButtonDown[BTN_POWER] || releasedThisFrame[BTN_POWER]) &&
+      buttonPressTime[BTN_POWER] > 0) {
+    const unsigned long held = now - buttonPressTime[BTN_POWER];
+    if (held > maxHeld)
+      maxHeld = held;
+  }
+#else
   const uint8_t *state = SDL_GetKeyboardState(NULL);
   for (int i = 0; i < NUM_BUTTONS; i++) {
     if ((state[buttonScancode[i]] || syntheticButtonDown[i] || releasedThisFrame[i]) &&
@@ -659,6 +832,7 @@ unsigned long HalGPIO::getHeldTime() const {
         maxHeld = held;
     }
   }
+#endif
   return maxHeld;
 }
 
