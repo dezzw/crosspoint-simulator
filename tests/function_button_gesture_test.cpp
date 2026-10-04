@@ -8,6 +8,8 @@ int main() {
 
   gesture.onPhysicalPressed(FunctionButtonGesture::FaceButton::Function, now);
   gesture.onPhysicalReleased(FunctionButtonGesture::FaceButton::Function, now);
+  assert(!gesture.logicalReleased(HalGPIO::BTN_CONFIRM));
+  assert(!gesture.logicalReleased(HalGPIO::BTN_BACK));
   gesture.advance(now + FunctionButtonGesture::kDoubleClickWindowMs + 1);
   assert(gesture.logicalPressed(HalGPIO::BTN_CONFIRM));
   assert(!gesture.logicalPressed(HalGPIO::BTN_BACK));
@@ -26,6 +28,14 @@ int main() {
   gesture.onPhysicalPressed(FunctionButtonGesture::FaceButton::Left, now + 5);
   gesture.onPhysicalReleased(FunctionButtonGesture::FaceButton::Left, now + 20);
   assert(gesture.logicalPressed(HalGPIO::BTN_UP));
+
+  gesture.reset();
+  now = 2500;
+  gesture.onPhysicalPressed(FunctionButtonGesture::FaceButton::Boot, now);
+  gesture.onPhysicalPressed(FunctionButtonGesture::FaceButton::Left, now);
+  gesture.onPhysicalReleased(FunctionButtonGesture::FaceButton::Left, now);
+  assert(gesture.logicalPressed(HalGPIO::BTN_UP));
+  assert(gesture.logicalReleased(HalGPIO::BTN_UP));
 
   gesture.reset();
   now = 3000;

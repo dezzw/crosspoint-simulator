@@ -390,8 +390,6 @@ void onFaceButtonDown(int faceIndex) {
 void onFaceButtonUp(int faceIndex) {
   const auto button = static_cast<FaceButton>(faceIndex);
   faceGesture.onPhysicalReleased(button, SDL_GetTicks());
-  if (button == FaceButton::Function)
-    releasedThisFrame[HalGPIO::BTN_CONFIRM] = true;
   mergeGestureLogicalEdges();
 }
 
